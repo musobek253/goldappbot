@@ -29,7 +29,7 @@ def get_text(chat_id, key, **kwargs):
 
 def get_main_keyboard(chat_id):
     lang = db.get_user_language(chat_id)
-    t = TEXTS[lang]
+    t = TEXTS.get(lang, TEXTS['uz'])
     keyboard = [
         [KeyboardButton(t['tariffs_btn']), KeyboardButton(t['profile_btn'])],
         [KeyboardButton(t['status_btn']), KeyboardButton(t['news_btn'])],
@@ -54,60 +54,58 @@ async def main_menu_text_handler(update: Update, context: ContextTypes.DEFAULT_T
     lang = db.get_user_language(chat_id)
     t = TEXTS[lang]
 
-    # Handle language agnostic or check against current language texts
-    
-    if text == t['tariffs_btn']:
+    if text == t.get('tariffs_btn'):
         keyboard = [
-            [InlineKeyboardButton(t['week_10'], callback_data='sub_weekly')],
-            [InlineKeyboardButton(t['month_30'], callback_data='sub_monthly')],
-            [InlineKeyboardButton(t['back'], callback_data='back_main')]
+            [InlineKeyboardButton(t.get('week_10'), callback_data='sub_weekly')],
+            [InlineKeyboardButton(t.get('month_30'), callback_data='sub_monthly')],
+            [InlineKeyboardButton(t.get('back'), callback_data='back_main')]
         ]
         await update.message.reply_text(
-            t['choose_tariff'],
+            t.get('choose_tariff'),
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
-    elif text == t['profile_btn']:
+    elif text == t.get('profile_btn'):
         user_id = update.effective_user.id
         sub = db.get_subscription(user_id)
         if sub and sub.is_active:
-            status = t['profile_active']
+            status = t.get('profile_active')
             expiry = sub.end_date.strftime("%Y-%m-%d")
         else:
-            status = t['profile_inactive']
+            status = t.get('profile_inactive')
             expiry = "-"
         
         msg = get_text(chat_id, 'profile_info', user_id=user_id, status=status, expiry=expiry)
         await update.message.reply_text(msg, parse_mode='HTML')
         
-    elif text == t['status_btn']:
+    elif text == t.get('status_btn'):
         price = data_handler.get_current_price("XAU/USD", force_fetch=True)
         now = datetime.now() + timedelta(hours=5)
         msg = get_text(chat_id, 'market_status', price=price, time=now.strftime('%H:%M:%S'))
         await update.message.reply_text(msg, parse_mode='HTML')
         
-    elif text == t['news_btn']:
+    elif text == t.get('news_btn'):
         upcoming = engine.news_filter.get_upcoming_news(hours=24)
         if not upcoming:
-            msg = t['no_news']
+            msg = t.get('no_news')
         else:
-            msg = t['news_header']
+            msg = t.get('news_header')
             for event in upcoming:
                 msg += f"🕒 <b>{event['time']}</b> - {event['title']} ({event['impact']})\n"
             msg += "\n<i>Vaqtlar 2026 yil bo'yicha.</i>" # Hardcoded year for now/context
         
         await update.message.reply_text(msg, parse_mode='HTML')
         
-    elif text == t['settings_btn']:
+    elif text == t.get('settings_btn'):
         keyboard = [
             [
-                InlineKeyboardButton(t['lang_uz'], callback_data='lang_uz'),
-                InlineKeyboardButton(t['lang_ru'], callback_data='lang_ru')
+                InlineKeyboardButton(t.get('lang_uz'), callback_data='lang_uz'),
+                InlineKeyboardButton(t.get('lang_ru'), callback_data='lang_ru')
             ],
-            [InlineKeyboardButton(t['help_btn'], callback_data='help')]
+            [InlineKeyboardButton(t.get('help_btn'), callback_data='help')]
         ]
         await update.message.reply_text(
-            t['settings_menu'],
+            t.get('settings_menu'),
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
@@ -121,12 +119,12 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if query.data == 'tariffs':
         keyboard = [
-            [InlineKeyboardButton(t['week_10'], callback_data='sub_weekly')],
-            [InlineKeyboardButton(t['month_30'], callback_data='sub_monthly')],
-            [InlineKeyboardButton(t['back'], callback_data='back_main')]
+            [InlineKeyboardButton(t.get('week_10'), callback_data='sub_weekly')],
+            [InlineKeyboardButton(t.get('month_30'), callback_data='sub_monthly')],
+            [InlineKeyboardButton(t.get('back'), callback_data='back_main')]
         ]
         await query.edit_message_text(
-            t['choose_tariff'],
+            t.get('choose_tariff'),
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
@@ -148,7 +146,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         await query.edit_message_text(
             msg,
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t['back'], callback_data='tariffs')]]),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t.get('back'), callback_data='tariffs')]]),
             parse_mode='HTML'
         )
         
@@ -168,7 +166,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.delete_message()
         await context.bot.send_message(
             chat_id=chat_id,
-            text=t['lang_changed'],
+            text=t.get('lang_changed'),
             reply_markup=get_main_keyboard(chat_id)
         )
         
@@ -178,27 +176,27 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.delete_message()
         await context.bot.send_message(
             chat_id=chat_id,
-            text=t['lang_changed'],
+            text=t.get('lang_changed'),
             reply_markup=get_main_keyboard(chat_id)
         )
 
     elif query.data == 'help':
         await query.edit_message_text(
-            t['help_text'],
-            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t['back'], callback_data='back_settings')]]),
+            t.get('help_text'),
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton(t.get('back'), callback_data='back_settings')]]),
             parse_mode='HTML'
         )
         
     elif query.data == 'back_settings':
          keyboard = [
             [
-                InlineKeyboardButton(t['lang_uz'], callback_data='lang_uz'),
-                InlineKeyboardButton(t['lang_ru'], callback_data='lang_ru')
+                InlineKeyboardButton(t.get('lang_uz'), callback_data='lang_uz'),
+                InlineKeyboardButton(t.get('lang_ru'), callback_data='lang_ru')
             ],
-            [InlineKeyboardButton(t['help_btn'], callback_data='help')]
+            [InlineKeyboardButton(t.get('help_btn'), callback_data='help')]
         ]
          await query.edit_message_text(
-            t['settings_menu'],
+            t.get('settings_menu'),
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode='HTML'
         )
@@ -213,7 +211,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         u_t = TEXTS[user_lang]
         channel_link = 'https://t.me/+X49fsjSV6Ow2YmMy'
         
-        msg = u_t['sub_approved'].format(days=days, date=end_date.strftime('%Y-%m-%d %H:%M'), link=channel_link)
+        msg = u_t.get('sub_approved').format(days=days, date=end_date.strftime('%Y-%m-%d %H:%M'), link=channel_link)
         
         try:
             await context.bot.send_message(chat_id=user_id, text=msg, parse_mode='HTML')
@@ -225,7 +223,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
              user_lang = db.get_user_language(user_id)
              u_t = TEXTS[user_lang]
-             await context.bot.send_message(chat_id=user_id, text=u_t['sub_rejected'])
+             await context.bot.send_message(chat_id=user_id, text=u_t.get('sub_rejected'))
         except: pass
 
     elif query.data.startswith('sigpub_'):
@@ -233,9 +231,6 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         signal_db = db.get_signal_by_id(signal_id)
         
         if signal_db:
-            # Kanaldagi xabar - Kanal odatda bitta tilda bo'ladi, lekin biz umumiy formatda yozdik
-            # Aslida kanal uchun til userga bog'liq emas. Kanal tili hardcode qilinishi mumkin yoki mixed.
-            # Hozircha o'zbek tilida qoldiramiz kanal uchun, chunki kanal O'zbekistonda.
             
             # Lot hisoblash
             sl_dist = abs(signal_db.price - signal_db.sl)
@@ -276,17 +271,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == 'back_main':
         t = TEXTS[lang]
-        keyboard = [
-            [InlineKeyboardButton(t['tariffs_btn'], callback_data='tariffs')],
-            [InlineKeyboardButton(t['profile_btn'], callback_data='profile')],
-            [InlineKeyboardButton(t['status_btn'], callback_data='status')],
-            [InlineKeyboardButton(t['settings_btn'], callback_data='settings')],
-        ]
-        # Bu yerda Inline bo'lgani uchun inline tugmalar orqali navigatsiya qilish kerak edi
-        # Lekin glavniy menyu ReplyKeyboardda. Shuning uchun shunchaki matnni o'zgartiramiz.
-        # Aslida 'back_main' bu inline menu ichidagi orqaga.
-        
-        await query.edit_message_text(t['back_to_main'], reply_markup=None) # Yoki shunchaki xabarni o'chirib Reply menu ishlatish
+        await query.edit_message_text(t.get('back_to_main'), reply_markup=None) 
 
 async def grant_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_ID: return
@@ -343,6 +328,8 @@ async def signal_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- CONVERSATION HANDLERS FOR MANUAL SIGNAL ---
 
+CANCEL_KEYWORDS = ["Bekor qilish", "Отмена", "Cancel", "/cancel"]
+
 async def start_signal_creation(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if str(update.effective_user.id) != ADMIN_ID:
         return ConversationHandler.END
@@ -350,9 +337,9 @@ async def start_signal_creation(update: Update, context: ContextTypes.DEFAULT_TY
     chat_id = update.effective_chat.id
     t = TEXTS[db.get_user_language(chat_id)]
         
-    keyboard = [[KeyboardButton("BUY"), KeyboardButton("SELL")], [KeyboardButton(t['cancel'])]]
+    keyboard = [[KeyboardButton("BUY"), KeyboardButton("SELL")], [KeyboardButton(t.get('cancel'))]]
     await update.message.reply_text(
-        t['manual_signal_start'],
+        t.get('manual_signal_start'),
         reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True, one_time_keyboard=True),
         parse_mode='HTML'
     )
@@ -360,83 +347,101 @@ async def start_signal_creation(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def get_signal_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    t = TEXTS[db.get_user_language(chat_id)]
+    lang = db.get_user_language(chat_id)
+    t = TEXTS.get(lang, TEXTS['uz'])
     text = update.message.text
     
-    if text == t['cancel']:
-        await update.message.reply_text(t['cancelled'], reply_markup=get_main_keyboard(chat_id))
+    if text in CANCEL_KEYWORDS or text == t.get('cancel'):
+        await update.message.reply_text(t.get('cancelled'), reply_markup=get_main_keyboard(chat_id))
         return ConversationHandler.END
         
     if text not in ["BUY", "SELL"]:
-        await update.message.reply_text(t['error_type'])
+        await update.message.reply_text(t.get('error_type'), reply_markup=ReplyKeyboardMarkup([[KeyboardButton("BUY"), KeyboardButton("SELL")], [KeyboardButton(t.get('cancel'))]], resize_keyboard=True))
         return SIGNAL_TYPE
         
     context.user_data['sig_type'] = text
     await update.message.reply_text(
         get_text(chat_id, 'manual_signal_price', type=text), 
         parse_mode='HTML', 
-        reply_markup=ReplyKeyboardMarkup([[KeyboardButton(t['cancel'])]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup([[KeyboardButton(t.get('cancel'))]], resize_keyboard=True)
     )
     return SIGNAL_PRICE
 
 async def get_signal_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    t = TEXTS[db.get_user_language(chat_id)]
+    lang = db.get_user_language(chat_id)
+    t = TEXTS.get(lang, TEXTS['uz'])
     text = update.message.text
     
-    if text == t['cancel']:
-        await update.message.reply_text(t['cancelled'], reply_markup=get_main_keyboard(chat_id))
+    if text in CANCEL_KEYWORDS or text == t.get('cancel'):
+        await update.message.reply_text(t.get('cancelled'), reply_markup=get_main_keyboard(chat_id))
         return ConversationHandler.END
     
     try:
         price = float(text)
         context.user_data['price'] = price
-        await update.message.reply_text(get_text(chat_id, 'manual_signal_sl', price=price), parse_mode='HTML')
+        await update.message.reply_text(get_text(chat_id, 'manual_signal_sl', price=price), parse_mode='HTML', reply_markup=ReplyKeyboardMarkup([[KeyboardButton(t.get('cancel'))]], resize_keyboard=True))
         return SIGNAL_SL
     except ValueError:
-        await update.message.reply_text(t['error_num'])
+        await update.message.reply_text(t.get('error_num'), reply_markup=ReplyKeyboardMarkup([[KeyboardButton(t.get('cancel'))]], resize_keyboard=True))
         return SIGNAL_PRICE
+    except Exception as e:
+        logger.error(f"Error in get_signal_price: {e}")
+        await update.message.reply_text(f"Xatolik: {e}")
+        return ConversationHandler.END
 
 async def get_signal_sl(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    t = TEXTS[db.get_user_language(chat_id)]
+    lang = db.get_user_language(chat_id)
+    t = TEXTS.get(lang, TEXTS['uz'])
     text = update.message.text
     
-    if text == t['cancel']:
+    if text in CANCEL_KEYWORDS or text == t.get('cancel'):
+        await update.message.reply_text(t.get('cancelled'), reply_markup=get_main_keyboard(chat_id))
         return ConversationHandler.END
         
     try:
         sl = float(text)
         context.user_data['sl'] = sl
-        await update.message.reply_text(get_text(chat_id, 'manual_signal_tp', sl=sl), parse_mode='HTML')
+        await update.message.reply_text(get_text(chat_id, 'manual_signal_tp', sl=sl), parse_mode='HTML', reply_markup=ReplyKeyboardMarkup([[KeyboardButton(t.get('cancel'))]], resize_keyboard=True))
         return SIGNAL_TP
     except ValueError:
-        await update.message.reply_text(t['error_num'])
+        await update.message.reply_text(t.get('error_num'), reply_markup=ReplyKeyboardMarkup([[KeyboardButton(t.get('cancel'))]], resize_keyboard=True))
         return SIGNAL_SL
+    except Exception as e:
+        logger.error(f"Error in get_signal_sl: {e}")
+        return ConversationHandler.END
 
 async def get_signal_tp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    t = TEXTS[db.get_user_language(chat_id)]
+    lang = db.get_user_language(chat_id)
+    t = TEXTS.get(lang, TEXTS['uz'])
     text = update.message.text
     
-    if text == t['cancel']:
+    if text in CANCEL_KEYWORDS or text == t.get('cancel'):
+        await update.message.reply_text(t.get('cancelled'), reply_markup=get_main_keyboard(chat_id))
         return ConversationHandler.END
         
     try:
         tp = float(text)
         context.user_data['tp'] = tp
-        await update.message.reply_text(get_text(chat_id, 'manual_signal_reason', tp=tp), parse_mode='HTML')
+        await update.message.reply_text(get_text(chat_id, 'manual_signal_reason', tp=tp), parse_mode='HTML', reply_markup=ReplyKeyboardMarkup([[KeyboardButton(t.get('cancel'))]], resize_keyboard=True))
         return SIGNAL_REASON
     except ValueError:
-        await update.message.reply_text(t['error_num'])
+        await update.message.reply_text(t.get('error_num'), reply_markup=ReplyKeyboardMarkup([[KeyboardButton(t.get('cancel'))]], resize_keyboard=True))
         return SIGNAL_TP
+    except Exception as e:
+        logger.error(f"Error in get_signal_tp: {e}")
+        return ConversationHandler.END
 
 async def get_signal_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    t = TEXTS[db.get_user_language(chat_id)]
+    lang = db.get_user_language(chat_id)
+    t = TEXTS.get(lang, TEXTS['uz'])
     text = update.message.text
     
-    if text == t['cancel']:
+    if text in CANCEL_KEYWORDS or text == t.get('cancel'):
+        await update.message.reply_text(t.get('cancelled'), reply_markup=get_main_keyboard(chat_id))
         return ConversationHandler.END
         
     context.user_data['reason'] = text
@@ -468,15 +473,15 @@ async def get_signal_reason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = [[InlineKeyboardButton("✅ Ha", callback_data=f"sigpub_{signal_id}"),
            InlineKeyboardButton("❌ Yo'q", callback_data=f"sigrej_{signal_id}")]]
     
-    await update.message.reply_text(t['manual_signal_preview'], reply_markup=get_main_keyboard(chat_id))
+    await update.message.reply_text(t.get('manual_signal_preview'), reply_markup=get_main_keyboard(chat_id))
     await update.message.reply_text(preview_msg, reply_markup=InlineKeyboardMarkup(kb), parse_mode='HTML')
     
     return ConversationHandler.END
 
 async def cancel_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
-    t = TEXTS[db.get_user_language(chat_id)]
-    await update.message.reply_text(t['cancelled'], reply_markup=get_main_keyboard(chat_id))
+    t = TEXTS.get(db.get_user_language(chat_id), TEXTS['uz'])
+    await update.message.reply_text(t.get('cancelled'), reply_markup=get_main_keyboard(chat_id))
     return ConversationHandler.END
 
 async def join_request_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):

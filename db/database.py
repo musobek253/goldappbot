@@ -51,7 +51,10 @@ class Subscription(Base):
 
 class Database:
     def __init__(self, db_path="sqlite:///bot_data.db"):
-        self.engine = create_engine(db_path, echo=False)
+        if 'sqlite' in db_path:
+            self.engine = create_engine(db_path, echo=False, connect_args={'check_same_thread': False})
+        else:
+            self.engine = create_engine(db_path, echo=False)
         self.Session = sessionmaker(bind=self.engine)
         self._init_db()
         self._check_schema_updates()
