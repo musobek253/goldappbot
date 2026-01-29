@@ -6,7 +6,7 @@ from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandle
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from dotenv import load_dotenv
 
-from .handlers import (
+from bot.handlers import (
     start, button_handler, grant_command, signal_command, join_request_handler, main_menu_text_handler, 
     start_signal_creation, get_signal_type, get_signal_price, get_signal_sl, get_signal_tp, get_signal_reason, cancel_handler,
     SIGNAL_TYPE, SIGNAL_PRICE, SIGNAL_SL, SIGNAL_TP, SIGNAL_REASON,
@@ -109,7 +109,7 @@ async def check_market_job(context: ContextTypes.DEFAULT_TYPE):
                 f"📝 <b>Sabab:</b> {signal['reason']}\n"
             )
 
-            # COT moduli haqida ma'lumot (agar bo'lsa)
+            # COT Modules info via cot_info
             if 'cot_info' in signal and signal['cot_info']:
                 cot = signal['cot_info']
                 msg += f"🏦 <b>COT Index:</b> <code>{cot['cot_index']}%</code>\n"
