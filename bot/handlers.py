@@ -3,10 +3,10 @@ import os
 from datetime import datetime, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, filters
-from ..db.database import Database
-from ..strategies.engine import StrategyEngine
-from ..data.feed import DataHandler
-from .languages import TEXTS
+from db.database import Database
+from strategies.engine import StrategyEngine
+from data.feed import DataHandler
+from bot.languages import TEXTS
 
 logger = logging.getLogger(__name__)
 

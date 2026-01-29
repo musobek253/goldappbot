@@ -1,8 +1,8 @@
 import logging
-from .indicators import calculate_indicators
-from ..data.feed import DataHandler
-from .news import NewsFilter
-from .cot_analyzer import COTAnalyzer
+from strategies.indicators import calculate_indicators
+from data.feed import DataHandler
+from strategies.news import NewsFilter
+from strategies.cot_analyzer import COTAnalyzer
 
 logger = logging.getLogger(__name__)
 
