@@ -128,8 +128,8 @@ class StrategyEngine:
             has_candle_signal = any(p in candlesticks for p in ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"])
             
             # --- YANGI FILTRLAR (Win Rate 75% uchun) ---
-            # 1. RSI: Tepada sotib olmaslik kerak (RSI < 60) - Stricter
-            rsi_ok = rsi < 60
+            # 1. RSI: Tepada sotib olmaslik kerak (RSI < 70)
+            rsi_ok = rsi < 70
             
             # 2. MACD Momentum: Gistogramma o'sayotgan bo'lishi kerak
             # Indikatorlar dataframe da 'MACDh_12_26_9' (Hist) borligini tekshiramiz
@@ -153,8 +153,8 @@ class StrategyEngine:
             has_candle_signal = any(p in candlesticks for p in ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"])
 
             # --- YANGI FILTRLAR ---
-            # 1. RSI: Pastda sotmaslik kerak (RSI > 40) - Stricter
-            rsi_ok = rsi > 40
+            # 1. RSI: Pastda sotmaslik kerak (RSI > 30)
+            rsi_ok = rsi > 30
             
             # 2. Momentum DOWN: Hist < Prev_Hist (Pasaymoqda) Yoki Hist < 0
             macd_hist = last_m15.get("MACDh_12_26_9", 0)
