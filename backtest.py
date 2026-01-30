@@ -118,20 +118,22 @@ def run_backtest(symbol="XAU/USD"):
             prev_macd_hist = prev_m15.get("MACDh_12_26_9", 0)
             momentum_ok = macd_hist > prev_macd_hist or macd_hist > 0
             
-            if valid_pattern or has_candle:
+            if has_candle:
                 if rsi_ok and momentum_ok:
                     entry_signal = True
                 
         elif direction == "SELL":
              has_candle = any(p in candlesticks for p in ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"])
              
-             rsi_ok = last_m15.get("RSI_14") > 40
+             rsi_ok = last_m15.get("RSI_14") > 40 # Using 40 which was from previous step, but should match engine (30).
+             # Let's fix RSI to 30 as well to match engine optimization
+             rsi_ok = last_m15.get("RSI_14") > 30
              
              macd_hist = last_m15.get("MACDh_12_26_9", 0)
              prev_macd_hist = prev_m15.get("MACDh_12_26_9", 0)
              momentum_ok = macd_hist < prev_macd_hist or macd_hist < 0
              
-             if valid_pattern or has_candle:
+             if has_candle:
                  if rsi_ok and momentum_ok:
                     entry_signal = True
                 

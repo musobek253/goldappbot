@@ -140,11 +140,12 @@ class StrategyEngine:
             momentum_ok = macd_hist > prev_macd_hist or macd_hist > 0
             
             # Agar Pattern bo'lsa, filterlarni yumshatish mumkin. Pattern yo'q bo'lsa, qattiq turamiz.
-            if valid_pattern or has_candle_signal:
+            # OPTIMIZATION UPDATE: Pattern alone gives low quality trades. We REQUIRE candle signal.
+            if has_candle_signal:
                 if rsi_ok and momentum_ok:
                     confirmed = True
                     p_text = f"Pattern: {pattern_name}" if valid_pattern else "No Pattern"
-                    c_text = f"Candle: {candlesticks}" if has_candle_signal else "Weak Candle"
+                    c_text = f"Candle: {candlesticks}" 
                     confirmation_reason = f"{p_text} | {c_text} | RSI: {rsi:.1f} | MACD: OK"
             
 
@@ -162,11 +163,11 @@ class StrategyEngine:
             
             momentum_ok = macd_hist < prev_macd_hist or macd_hist < 0
 
-            if valid_pattern or has_candle_signal:
+            if has_candle_signal:
                 if rsi_ok and momentum_ok:
                     confirmed = True
                     p_text = f"Pattern: {pattern_name}" if valid_pattern else "No Pattern"
-                    c_text = f"Candle: {candlesticks}" if has_candle_signal else "Weak Candle"
+                    c_text = f"Candle: {candlesticks}" 
                     confirmation_reason = f"{p_text} | {c_text} | RSI: {rsi:.1f} | MACD: OK"
                 
         if not confirmed:
