@@ -59,7 +59,8 @@ class StrategyEngine:
         current_price = self.data_handler.get_current_price(symbol)
         
         # Filtr: Bizga darajaga yaqinlik kerak (masalan 20-30 pips = $2-$3 Goldda)
-        LEVEL_TOLERANCE = 3.0 
+        # UPDATE: Ko'proq signal uchun tolerance oshirildi $3 -> $5
+        LEVEL_TOLERANCE = 5.0 
         
         nearby_support = [l for l in h4_levels if l['type'] == 'SUPPORT' and abs(l['price'] - current_price) < LEVEL_TOLERANCE]
         nearby_resistance = [l for l in h4_levels if l['type'] == 'RESISTANCE' and abs(l['price'] - current_price) < LEVEL_TOLERANCE]
@@ -106,14 +107,8 @@ class StrategyEngine:
                 valid_pattern = True
                 pattern_name = "Double Top"
                 
-        # Eslatma: Pattern bo'lmasa ham, agar kuchli sham confirmation bo'lsa kirish mumkinmi?
-        # User talabi: "Agar narx Support darajasida bo'lsa VA Double Bottom shakli tugallanayotgan bo'lsa..."
-        # Demak pattern SHART.
-        # Lekin pattern kam uchraydi. Shuning uchun testlashda ehtiyot bo'lish kerak.
-        # Hozircha User talabiga binoan Pattern yo'q bo'lsa return qilamiz.
-        if not valid_pattern:
-             # Pattern topilmadi.
-             return None
+        # UPDATE: Ko'proq signal uchun "Pattern SHART EMAS", agar qat'iy sham tasdi (Stage 3) bo'lsa.
+        # Biz valid_pattern ni saqlab qolamiz, lekin return qilmaymiz.
 
         # 3-BOSQICH: Kirish va Tasdiq (M15)
         # Sham tahlili va RSI
@@ -130,9 +125,16 @@ class StrategyEngine:
         
         if direction == "BUY":
             # Hammer, Bullish Engulfing yoki Morning Star
-            if any(p in candlesticks for p in ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"]):
+            has_candle_signal = any(p in candlesticks for p in ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"])
+            
+            # Agar Pattern bo'lsa, har qanday bullish candle yetarli bo'lishi mumkin.
+            # Agar Pattern bo'lmasa, kuchli candle signal SHART.
+            
+            if valid_pattern or has_candle_signal:
                 confirmed = True
-                confirmation_reason = f"Candle: {candlesticks}, RSI: {rsi:.1f}"
+                p_text = f"Pattern: {pattern_name}" if valid_pattern else "No Pattern"
+                c_text = f"Candle: {candlesticks}" if has_candle_signal else "Weak Candle"
+                confirmation_reason = f"{p_text} | {c_text} | RSI: {rsi:.1f}"
             
             # RSI Filter
             if rsi > 30 and rsi < 70: 
@@ -140,9 +142,13 @@ class StrategyEngine:
 
         if direction == "SELL":
              # Shooting Star, Bearish Engulfing yoki Evening Star
-            if any(p in candlesticks for p in ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"]):
+            has_candle_signal = any(p in candlesticks for p in ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"])
+
+            if valid_pattern or has_candle_signal:
                 confirmed = True
-                confirmation_reason = f"Candle: {candlesticks}, RSI: {rsi:.1f}"
+                p_text = f"Pattern: {pattern_name}" if valid_pattern else "No Pattern"
+                c_text = f"Candle: {candlesticks}" if has_candle_signal else "Weak Candle"
+                confirmation_reason = f"{p_text} | {c_text} | RSI: {rsi:.1f}"
                 
         if not confirmed:
             return None

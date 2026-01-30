@@ -38,7 +38,7 @@ class DataHandler:
         period = "5d" 
         if timeframe in ["D1", "H4"]:
             period = "1y"
-        elif timeframe == "H1":
+        elif timeframe in ["H1", "M15", "M30"]:
             period = "1mo"
         
         try:

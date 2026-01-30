@@ -1,104 +1,198 @@
 import pandas as pd
-from treding.data.feed import DataHandler
-from treding.strategies.indicators import calculate_indicators
-from treding.db.database import Database
+import numpy as np
+from data.feed import DataHandler
+from strategies.indicators import (
+    calculate_indicators, identify_levels, check_trend_ema200, 
+    detect_patterns, check_candlestick_patterns
+)
+import logging
 
-def run_backtest(symbol="XAU/USD", timeframe="H1", limit=500):
-    print(f"--- {symbol} uchun Backtest ishga tushirildi ({timeframe}) ---")
+# Loglarni o'chirish (toza output uchun)
+logging.getLogger("treding.data.feed").setLevel(logging.ERROR)
+
+def run_backtest(symbol="XAU/USD"):
+    print(f"--- {symbol} uchun 3-Bosqichli Strategiya Backtesti (1 Oy) ---")
+    print("Ma'lumotlar yuklanmoqda...")
     
-    # 1. Ma'lumotlarni yuklash
     data = DataHandler()
-    df = data.fetch_data(symbol, timeframe, limit=limit)
-    if df.empty:
-        print("Ma'lumot topilmadi.")
+    
+    # 1. Ma'lumotlarni yuklash (60 kunlik - indikatorlar hisoblash uchun zaxira bilan)
+    # H4 - Global Context
+    df_h4 = data.fetch_data(symbol, "H4", limit=500)
+    # M15 - Entry
+    df_m15 = data.fetch_data(symbol, "M15", limit=2000) 
+    
+    if df_h4.empty or df_m15.empty:
+        print("Ma'lumotlar yetarli emas!")
         return
 
-    # 2. Indikatorlarni qo'shish
-    # Standart sozlamalardan foydalanish
-    config = {"RSI_PERIOD": 14}
-    df = calculate_indicators(df, config)
+    # 2. Indikatorlar
+    config = {"RSI_PERIOD": 14, "EMA_FAST": 50, "EMA_SLOW": 200}
+    df_h4 = calculate_indicators(df_h4, config)
+    df_m15 = calculate_indicators(df_m15, config)
     
-    # 3. Iteratsiya (Takrorlash)
+    # Simulyatsiya
     balance = 1000
-    position = None
     trades = []
     
-    # Oddiy Loop
-    # Eslatma: Mantiq engine.py bilan mos bo'lishi kerak, lekin backtest uchun uni tezlashtiramiz.
-    # Indikatorlar shakllanishi uchun 50-indeksdan boshlab iteratsiya qilamiz.
-    for i in range(50, len(df)):
-        row = df.iloc[i]
-        prev_row = df.iloc[i-1]
-        price = row['close']
-        
-        # Mantiqiy nusxa (Soddalashtirilgan)
-        rsi = row.get("RSI_14")
-        
-        # --- Fibonacci Mantig'i ---
-        fib_levels = [0.236, 0.382, 0.5, 0.618, 0.786]
-        fib_signal_near = False
-        for level in fib_levels:
-            fib_price = row.get(f"FIB_{level}")
-            if fib_price:
-                if abs(price - fib_price) < (price * 0.0005): # Ruxsat etilgan farq (Tolerance)
-                    fib_signal_near = True
-                    break
-
-        # --- Trend Pullback Strategiyasi ---
-        # 1. Trendni aniqlash
-        ema_200 = row.get("EMA_200")
-        
-        # 2. Pullback (qayrilish)ni aniqlash
-        # Faqat o'suvchi trendda (Narx > EMA200) VA RSI past bo'lsa (masalan, < 45) sotib olish (Buy)
-        # Faqat tushuvchi trendda (Narx < EMA200) VA RSI yuqori bo'lsa (masalan, > 55) sotish (Sell)
-        
-        if position is None:
-             if ema_200 and price > ema_200 and rsi < 45: # O'suvchi trendda tushishni (dip) sotib olish
-                 position = {"type": "BUY", "price": price, "time": row.name}
-             elif ema_200 and price < ema_200 and rsi > 55: # Tushuvchi trendda ko'tarilishni (rally) sotish
-                 position = {"type": "SELL", "price": price, "time": row.name}
-        
-        # CHIQISH (EXIT)
-        elif position:
-            pnl = 0
-            closed = False
+    # H4 ma'lumotlarini tezkor qidirish uchun dictionaryga o'tkazish (optimization)
+    # Aslida M15 sham vaqtiga mos keladigan H4 shamni topishimiz kerak.
+    # Oddiy yo'l: Har bir M15 stepda filter qilish (sekin)
+    # Tezkor yo'l: `asof` merge yoki shunchaki oxirgi indexni saqlash.
+    
+    print(f"Simulyatsiya boshlandi... (Jami {len(df_m15)} M15 sham)")
+    
+    # Backtest start index (kamida 200 sham o'tkazib yuboramiz - indikatorlar uchun)
+    start_index = 200
+    
+    for i in range(start_index, len(df_m15)):
+        # Progress bar
+        if i % 500 == 0:
+            print(f"Kuzatuv: {i}/{len(df_m15)} sham...")
             
-            # SL / TP Doimiylari
-            STOP_LOSS_PRICE = 20.0 # $20 qarshi harakat
+        current_m15_row = df_m15.iloc[i]
+        current_time = current_m15_row.name
+        
+        # 1. H4 Contextni olish (Look-ahead bias bo'lmasligi uchun current_time dan kichik yoki teng)
+        # Biz H4 ning yopilgan shamlarini olishimiz kerak.
+        # current_time - bu M15 ning close time'i.
+        
+        # H4 dagi mos keluvchi oxirgi yopilgan shamni topish
+        h4_subset = df_h4[df_h4.index <= current_time]
+        if h4_subset.empty: continue
+        
+        # Strategy Logic Replica
+        
+        # --- STAGE 1: Global Trend & Levels (H4) ---
+        global_trend = check_trend_ema200(h4_subset)
+        
+        # Levels - H4 slice ni ishlatamiz
+        h4_slice_for_levels = h4_subset.tail(100) # Oxirgi 100 ta H4 sham
+        h4_levels = identify_levels(h4_slice_for_levels, window=10)
+        
+        current_price = current_m15_row['close']
+        # UPDATE: Tolerance $5.0
+        LEVEL_TOLERANCE = 5.0
+        
+        nearby_support = [l for l in h4_levels if l['type'] == 'SUPPORT' and abs(l['price'] - current_price) < LEVEL_TOLERANCE]
+        nearby_resistance = [l for l in h4_levels if l['type'] == 'RESISTANCE' and abs(l['price'] - current_price) < LEVEL_TOLERANCE]
+        
+        direction = None
+        if global_trend == "UP" and nearby_support:
+            direction = "BUY"
+        elif global_trend == "DOWN" and nearby_resistance:
+            direction = "SELL"
             
-            pnl_curr = 0
-            if position['type'] == "BUY":
-                pnl_curr = price - position['price']
-                # SL ni tekshirish
-                if pnl_curr < -STOP_LOSS_PRICE:
-                    pnl = pnl_curr
-                    closed = True
-                # Signal orqali chiqishni tekshirish
-                elif rsi > 55:
-                    pnl = pnl_curr
-                    closed = True
-                    
-            elif position['type'] == "SELL":
-                pnl_curr = position['price'] - price
-                # SL ni tekshirish
-                if pnl_curr < -STOP_LOSS_PRICE:
-                    pnl = pnl_curr
-                    closed = True
-                # Signal orqali chiqishni tekshirish
-                elif rsi < 45: 
-                    pnl = pnl_curr
-                    closed = True
+        # Fallback (Reversal) logic from engine.py
+        if not direction:
+            if nearby_support: direction = "BUY"
+            elif nearby_resistance: direction = "SELL"
+            else: continue
             
-            if closed:
-                trades.append(pnl)
-                balance += pnl
-                position = None
-
-    print(f"Jami savdolar: {len(trades)}")
-    print(f"Yakuniy balans: {balance:.2f} (Boshlanish: 1000)")
-    import numpy as np
+        # --- STAGE 2: Patterns (M15) ---
+        # M15 slice
+        m15_slice = df_m15.iloc[i-50:i+1] # Songi 50 ta sham
+        patterns = detect_patterns(m15_slice)
+        
+        valid_pattern = False
+        if direction == "BUY" and "DOUBLE_BOTTOM" in patterns: valid_pattern = True
+        if direction == "SELL" and "DOUBLE_TOP" in patterns: valid_pattern = True
+        
+        # UPDATE: Pattern optional. We continue to check candlesticks.
+        
+        # --- STAGE 3: Entry (M15) ---
+        last_m15 = df_m15.iloc[i]
+        prev_m15 = df_m15.iloc[i-1]
+        prev_2_m15 = df_m15.iloc[i-2]
+        
+        candlesticks = check_candlestick_patterns(last_m15, prev_m15, prev_2_m15)
+        
+        entry_signal = False
+        if direction == "BUY":
+            has_candle = any(p in candlesticks for p in ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"])
+            if valid_pattern or has_candle:
+                entry_signal = True
+                
+        elif direction == "SELL":
+             has_candle = any(p in candlesticks for p in ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"])
+             if valid_pattern or has_candle:
+                entry_signal = True
+                
+        if entry_signal:
+             # Trade Execution Simulation
+             entry_price = current_price
+             atr = last_m15.get("ATRr_14", entry_price * 0.002) * 1.5
+             
+             sl = entry_price - atr if direction == "BUY" else entry_price + atr
+             tp = entry_price + (atr * 2) if direction == "BUY" else entry_price - (atr * 2)
+             
+             # Oddiy natijani tekshirish (pips)
+             # Keyingi 4 soat (16 ta M15 sham) ichida nima bo'ldi?
+             future_candles = df_m15.iloc[i+1:i+20]
+             
+             outcome = "BE" # Breakeven default
+             pnl = 0
+             
+             for _, future_row in future_candles.iterrows():
+                 high = future_row['high']
+                 low = future_row['low']
+                 
+                 if direction == "BUY":
+                     if low <= sl:
+                         outcome = "LOSS"
+                         pnl = sl - entry_price
+                         break
+                     if high >= tp:
+                         outcome = "WIN"
+                         pnl = tp - entry_price
+                         break
+                 elif direction == "SELL":
+                     if high >= sl:
+                         outcome = "LOSS"
+                         pnl = entry_price - sl
+                         break
+                     if low <= tp:
+                         outcome = "WIN"
+                         pnl = entry_price - tp
+                         break
+             
+             # Agar vaqt tugasa va SL/TP bo'lmasa, current price da yopamiz
+             if outcome == "BE" and not future_candles.empty:
+                 exit_price = future_candles.iloc[-1]['close']
+                 if direction == "BUY": pnl = exit_price - entry_price
+                 else: pnl = entry_price - exit_price
+                 outcome = "CLOSE"
+                 
+             trades.append({
+                 "time": current_time,
+                 "type": direction,
+                 "price": entry_price,
+                 "outcome": outcome,
+                 "pnl": pnl
+             })
+             
+             # Savdo ochilgandan keyin biroz kutish (cooldown) - masalan keyingi 10 sham
+             # i += 10 # Loop ichida i ni o'zgartirib bo'lmaydi, lekin biz shunchaki continue qilishimiz mumkin
+             # Real loopda bu murakkabroq, shuning uchun shunchaki davom etamiz.
+             
+    # Natijalar
+    total_trades = len(trades)
+    wins = len([t for t in trades if t['pnl'] > 0])
+    losses = len([t for t in trades if t['pnl'] < 0])
+    win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
+    total_pnl = sum([t['pnl'] for t in trades])
+    
+    print("\n--- BACKTEST NATIJALARI ---")
+    print(f"Jami Savdolar: {total_trades}")
+    print(f"Yutuqlar: {wins}")
+    print(f"Yo'qotishlar: {losses}")
+    print(f"Win Rate: {win_rate:.2f}%")
+    print(f"Total PnL (Price diff): {total_pnl:.2f}")
+    
     if trades:
-        print(f"Win Rate: {np.mean([1 if t > 0 else 0 for t in trades])*100:.1f}%")
+        print("\nOxirgi 5 savdo:")
+        for t in trades[-5:]:
+            print(f"{t['time']} | {t['type']} | {t['outcome']} | PnL: {t['pnl']:.2f}")
 
 if __name__ == "__main__":
     run_backtest()
