@@ -17,7 +17,11 @@ def run_scenario(df_h4, df_h1, df_m15, scenario_name, params):
     trades = []
     start_index = 200
     
+    cooldown_until = 0 # Index to skip until
+    
     for i in range(start_index, len(df_m15)):
+        if i < cooldown_until: continue
+        
         current_m15_row = df_m15.iloc[i]
         current_time = current_m15_row.name
         
@@ -26,6 +30,8 @@ def run_scenario(df_h4, df_h1, df_m15, scenario_name, params):
         h1_subset = df_h1[df_h1.index <= current_time]
         
         if h4_subset.empty or h1_subset.empty: continue
+        
+        # ... (rest of logic) ...
         
         # 1. H4 Analysis
         # Trend EMA 200 (Standard)
@@ -150,6 +156,10 @@ def run_scenario(df_h4, df_h1, df_m15, scenario_name, params):
                  outcome = "CLOSE"
                  
              trades.append({"pnl": pnl, "outcome": outcome})
+             
+             # COOLDOWN LOGIC: If Loss, skip 4 hours (16 M15 candles)
+             if outcome == "LOSS":
+                 cooldown_until = i + 16
              
     total = len(trades)
     wins = len([t for t in trades if t['pnl'] > 0])

@@ -19,6 +19,8 @@ class StrategyEngine:
             calculate_indicators, identify_levels, check_trend_ema200, 
             detect_patterns, check_candlestick_patterns
         )
+        from strategies.state_manager import check_cooldown, update_trade_status, open_trade
+        
 
         # 1. Bozor Filtrlari (Vaqt va Yangiliklar)
         session = self.news_filter.get_market_session()
@@ -36,6 +38,17 @@ class StrategyEngine:
 
         if df_h4.empty or df_m15.empty:
             return None
+
+        # 2.1 Update Active Trade Status (Check SL/TP)
+        if not df_m15.empty:
+            last_candle = df_m15.iloc[-1]
+            update_trade_status(current_high=last_candle['high'], current_low=last_candle['low'])
+        
+        # 0. Cooldown Check (Now valid)
+        is_cooldown, remaining = check_cooldown(hours=4)
+        if is_cooldown:
+             logger.info(f"Cooldown active: {remaining} min remaining")
+             return None
 
         # 3. Indikatorlarni hisoblash
         config = {
@@ -203,6 +216,9 @@ class StrategyEngine:
         
         score = 3
         reason = f"3-Stage System: Trend {global_trend} | Level Reached | Pattern {pattern_name} | {confirmation_reason}"
+        
+        # Record Trade for Cooldown Logic
+        open_trade(symbol, signal, float(entry_price), float(sl), float(tp))
         
         return {
             "symbol": symbol,
