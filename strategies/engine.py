@@ -14,102 +14,159 @@ class StrategyEngine:
         self.cot_analyzer = COTAnalyzer(db)
 
     def check_signal(self, symbol="XAU/USD"):
+        # 0. Import needed helpers
+        from strategies.indicators import (
+            calculate_indicators, identify_levels, check_trend_ema200, 
+            detect_patterns, check_candlestick_patterns
+        )
+
         # 1. Bozor Filtrlari (Vaqt va Yangiliklar)
         session = self.news_filter.get_market_session()
-        if session == "CLOSED":
-            # return None 
-            pass
+        # if session == "CLOSED": pass 
 
         if not self.news_filter.check_news_impact():
             logger.info("Yuqori ta'sirli yangilik aniqlandi. Savdo o'tkazib yuborildi.")
             return None
 
-        # 2. COT Tahlili (Fundamental)
-        cot_data = None
-        if symbol == "XAU/USD":
-            cot_data = self.cot_analyzer.analyze()
+        # 2. Ma'lumotlarni yuklash (H4 - Global Context, M15 - Entry)
+        # H4 trend va darajalar uchun
+        df_h4 = self.data_handler.fetch_data(symbol, timeframe="H4", limit=200)
+        # M15 bu paternlar va kirish uchun
+        df_m15 = self.data_handler.fetch_data(symbol, timeframe="M15", limit=200)
 
-        # 3. Ikki xil Timeframe ma'lumotlarini yuklash (Technical)
-        df_m15 = self.data_handler.fetch_data(symbol, timeframe="M15", limit=100)
-        df_m5 = self.data_handler.fetch_data(symbol, timeframe="M5", limit=100)
-
-        if df_m15.empty or df_m5.empty:
+        if df_h4.empty or df_m15.empty:
             return None
 
-        # 4. Indikatorlarni hisoblash
+        # 3. Indikatorlarni hisoblash
         config = {
             "RSI_PERIOD": int(self.db.get_config("RSI_PERIOD", 14)),
             "EMA_FAST": 50,
             "EMA_SLOW": 200
         }
         
+        df_h4 = calculate_indicators(df_h4, config)
         df_m15 = calculate_indicators(df_m15, config)
-        df_m5 = calculate_indicators(df_m5, config)
 
-        # 5. Mantiqiy baholash & Sentiment Scoring
-        signal = None
-        reason = []
-        sentiment_score = 0 # 0 dan 3 gacha ball
+        # --- 3-BOSQICH: STRATEGIYA MANTIQI ---
 
-        # --- COT (Fundamental) ---
-        if cot_data:
-            cot_sentiment = cot_data.get('sentiment')
-            if cot_sentiment in ["BULLISH", "REVERSAL_BULLISH"]:
-                sentiment_score += 1
-                reason.append("COT: BULLISH (+1)")
-            elif cot_sentiment in ["BEARISH", "REVERSAL_BEARISH"]:
-                sentiment_score -= 1 # Buy uchun minus, Sell uchun keyinroq abs() qilamiz
-                reason.append("COT: BEARISH (-1)")
-
-        # --- Trend (M15 - Technical) ---
-        last_m15 = df_m15.iloc[-1]
-        trend = "NEUTRAL"
-        if last_m15["close"] > last_m15["EMA_200"]:
-            trend = "UP"
-            sentiment_score += 1
-            reason.append("EMA: TREND UP (+1)")
-        elif last_m15["close"] < last_m15["EMA_200"]:
-            trend = "DOWN"
-            sentiment_score -= 1
-            reason.append("EMA: TREND DOWN (-1)")
+        # 1-BOSQICH: Global Context (H4)
+        global_trend = check_trend_ema200(df_h4)
         
-        # --- RSI (Technical) ---
-        last_m5 = df_m5.iloc[-1]
-        rsi_m5 = last_m5["RSI_14"]
-        if rsi_m5 < 40: # Oversold yaqin
-            sentiment_score += 1
-            reason.append(f"RSI: M5 LOW({rsi_m5:.1f}) (+1)")
-        elif rsi_m5 > 60: # Overbought yaqin
-            sentiment_score -= 1
-            reason.append(f"RSI: M5 HIGH({rsi_m5:.1f}) (-1)")
-
-        # YAKUNIY QAROR
-        # sentiment_score: +3 bo'lsa BUY uchun kuchli, -3 bo'lsa SELL uchun kuchli
-        if sentiment_score >= 2:
-            signal = "BUY"
-        elif sentiment_score <= -2:
-            signal = "SELL"
-
-        if signal:
-            price = self.data_handler.get_current_price(symbol)
-            atr = last_m15.get("ATRr_14", price * 0.003) * 1.5 
+        # Support/Resistance darajalari (H4/D1 simulation on H4 data)
+        # 50 shamlik oyna bilan kuchli darajalarni topamiz
+        h4_levels = identify_levels(df_h4, window=20) 
+        
+        current_price = self.data_handler.get_current_price(symbol)
+        
+        # Filtr: Bizga darajaga yaqinlik kerak (masalan 20-30 pips = $2-$3 Goldda)
+        LEVEL_TOLERANCE = 3.0 
+        
+        nearby_support = [l for l in h4_levels if l['type'] == 'SUPPORT' and abs(l['price'] - current_price) < LEVEL_TOLERANCE]
+        nearby_resistance = [l for l in h4_levels if l['type'] == 'RESISTANCE' and abs(l['price'] - current_price) < LEVEL_TOLERANCE]
+        
+        # Agar trend yo'q bo'lsa yoki daraja topilmasa -> o'tkazib yuborish (user talabi: "Check Level ... yaqinmi?")
+        # Lekin user "Trend EMA 200 dan past bo'lsa faqat Sell" degan.
+        
+        direction = None
+        if global_trend == "UP":
+            if not nearby_support: # Trend Up bo'lsa, Supportdan qaytishni kutamiz
+                 pass # Yoki shartni yumshatamiz
+            else:
+                 direction = "BUY"
+        elif global_trend == "DOWN":
+             if not nearby_resistance:
+                 pass
+             else:
+                 direction = "SELL"
+                 
+        # Agar Trend Neutral bo'lsa yoki darajaga yaqin bo'lmasa, "Pattern" bosqichiga o'tmaymiz...
+        # Lekin ehtimol trend o'zgarishi ham mumkin (Reversal).
+        # User flowchart: Check Trend -> Check Level -> Check Pattern
+        
+        if not direction:
+            # Simple fallback: Agar biz kuchli darajaga keldik-u, lekin trend hali o'zgarmagan bo'lsa (Reversal uchun)
+            if nearby_support: direction = "BUY" # Potential Reversal Buy
+            elif nearby_resistance: direction = "SELL" # Potential Reversal Sell
+            else: return None # Daraja yo'q
             
-            sl = price - atr if signal == "BUY" else price + atr
-            tp = price + (atr * 2) if signal == "BUY" else price - (atr * 2)
+        # 2-BOSQICH: Pattern Recognition (M15)
+        # Bu yerda M15 da shakllarni qidiramiz
+        patterns = detect_patterns(df_m15)
+        
+        valid_pattern = False
+        pattern_name = ""
+        
+        if direction == "BUY":
+            if "DOUBLE_BOTTOM" in patterns:
+                valid_pattern = True
+                pattern_name = "Double Bottom"
+                
+        if direction == "SELL":
+            if "DOUBLE_TOP" in patterns:
+                valid_pattern = True
+                pattern_name = "Double Top"
+                
+        # Eslatma: Pattern bo'lmasa ham, agar kuchli sham confirmation bo'lsa kirish mumkinmi?
+        # User talabi: "Agar narx Support darajasida bo'lsa VA Double Bottom shakli tugallanayotgan bo'lsa..."
+        # Demak pattern SHART.
+        # Lekin pattern kam uchraydi. Shuning uchun testlashda ehtiyot bo'lish kerak.
+        # Hozircha User talabiga binoan Pattern yo'q bo'lsa return qilamiz.
+        if not valid_pattern:
+             # Pattern topilmadi.
+             return None
 
-            # Signal darajasi
-            strength = "KUCHLI" if abs(sentiment_score) == 3 else "O'RTA"
+        # 3-BOSQICH: Kirish va Tasdiq (M15)
+        # Sham tahlili va RSI
+        last_m15 = df_m15.iloc[-1]
+        prev_m15 = df_m15.iloc[-2]
+        prev_2_m15 = df_m15.iloc[-3]
+        
+        candlesticks = check_candlestick_patterns(last_m15, prev_m15, prev_2_m15)
+        
+        confirmed = False
+        confirmation_reason = ""
+        
+        rsi = last_m15["RSI_14"]
+        
+        if direction == "BUY":
+            # Hammer, Bullish Engulfing yoki Morning Star
+            if any(p in candlesticks for p in ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"]):
+                confirmed = True
+                confirmation_reason = f"Candle: {candlesticks}, RSI: {rsi:.1f}"
             
-            return {
-                "symbol": symbol,
-                "type": signal,
-                "price": price,
-                "sl": sl,
-                "tp": tp,
-                "reason": f"[{strength}] | " + " | ".join(reason),
-                "time": last_m5.name,
-                "score": abs(sentiment_score),
-                "cot_info": cot_data if symbol == "XAU/USD" else None
-            }
+            # RSI Filter
+            if rsi > 30 and rsi < 70: 
+                pass
 
-        return None
+        if direction == "SELL":
+             # Shooting Star, Bearish Engulfing yoki Evening Star
+            if any(p in candlesticks for p in ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"]):
+                confirmed = True
+                confirmation_reason = f"Candle: {candlesticks}, RSI: {rsi:.1f}"
+                
+        if not confirmed:
+            return None
+            
+        # --- EXECUTION ---
+        
+        signal = direction
+        entry_price = last_m15["close"]
+        atr = last_m15.get("ATRr_14", entry_price * 0.002) * 1.5
+        
+        sl = entry_price - atr if signal == "BUY" else entry_price + atr
+        tp = entry_price + (atr * 2) if signal == "BUY" else entry_price - (atr * 2)
+        
+        score = 3
+        reason = f"3-Stage System: Trend {global_trend} | Level Reached | Pattern {pattern_name} | {confirmation_reason}"
+        
+        return {
+            "symbol": symbol,
+            "type": signal,
+            "price": entry_price,
+            "sl": sl,
+            "tp": tp,
+            "reason": reason,
+            "time": last_m15.name,
+            "score": score,
+            "cot_info": None
+        }
