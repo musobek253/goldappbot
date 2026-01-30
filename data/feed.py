@@ -37,9 +37,9 @@ class DataHandler:
         
         period = "5d" 
         if timeframe in ["D1", "H4"]:
-            period = "1y"
+            period = "2y" # Context uchun ko'proq tarix
         elif timeframe in ["H1", "M15", "M30"]:
-            period = "1mo"
+            period = "60d" # Yahoo Finance intraday limiti (15m uchun max ~60 kun)
         
         try:
             df = yf.download(yf_symbol, interval=interval, period=period, progress=False, auto_adjust=True)

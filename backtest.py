@@ -18,9 +18,11 @@ def run_backtest(symbol="XAU/USD"):
     
     # 1. Ma'lumotlarni yuklash (60 kunlik - indikatorlar hisoblash uchun zaxira bilan)
     # H4 - Global Context
-    df_h4 = data.fetch_data(symbol, "H4", limit=500)
-    # M15 - Entry
-    df_m15 = data.fetch_data(symbol, "M15", limit=2000) 
+    df_h4 = data.fetch_data(symbol, "H4", limit=1000)
+    # M15 - Entry (60 kun ~ 5000-6000 sham)
+    df_m15 = data.fetch_data(symbol, "M15", limit=6000)
+    # H1 - Context
+    df_h1 = data.fetch_data(symbol, "H1", limit=2000)
     
     if df_h4.empty or df_m15.empty:
         print("Ma'lumotlar yetarli emas!")
@@ -108,16 +110,28 @@ def run_backtest(symbol="XAU/USD"):
         candlesticks = check_candlestick_patterns(last_m15, prev_m15, prev_2_m15)
         
         entry_signal = False
+        # H1 Context
+        h1_subset = df_h1[df_h1.index <= current_time]
+        
         if direction == "BUY":
             has_candle = any(p in candlesticks for p in ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"])
             
-            # Yangi filtrlar
-            rsi_ok = last_m15.get("RSI_14") < 60
+            rsi_ok = last_m15.get("RSI_14") < 70
             
             macd_hist = last_m15.get("MACDh_12_26_9", 0)
             prev_macd_hist = prev_m15.get("MACDh_12_26_9", 0)
             momentum_ok = macd_hist > prev_macd_hist or macd_hist > 0
             
+            # H1 & H4 Confirmation
+            if not h1_subset.empty and not h4_subset.empty:
+                 h1_last = h1_subset.iloc[-1]
+                 h4_last = h4_subset.iloc[-1]
+                 is_h1_bullish = h1_last['close'] > h1_last['open']
+                 is_h4_bullish = h4_last['close'] > h4_last['open']
+                 
+                 if not (is_h1_bullish and is_h4_bullish):
+                     momentum_ok = False # Veto
+    
             if has_candle:
                 if rsi_ok and momentum_ok:
                     entry_signal = True
@@ -125,14 +139,21 @@ def run_backtest(symbol="XAU/USD"):
         elif direction == "SELL":
              has_candle = any(p in candlesticks for p in ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"])
              
-             rsi_ok = last_m15.get("RSI_14") > 40 # Using 40 which was from previous step, but should match engine (30).
-             # Let's fix RSI to 30 as well to match engine optimization
-             rsi_ok = last_m15.get("RSI_14") > 30
+             rsi_ok = last_m15.get("RSI_14") > 30 
              
              macd_hist = last_m15.get("MACDh_12_26_9", 0)
              prev_macd_hist = prev_m15.get("MACDh_12_26_9", 0)
              momentum_ok = macd_hist < prev_macd_hist or macd_hist < 0
              
+             if not h1_subset.empty and not h4_subset.empty:
+                 h1_last = h1_subset.iloc[-1]
+                 h4_last = h4_subset.iloc[-1]
+                 is_h1_bearish = h1_last['close'] < h1_last['open']
+                 is_h4_bearish = h4_last['close'] < h4_last['open']
+                 
+                 if not (is_h1_bearish and is_h4_bearish):
+                     momentum_ok = False
+    
              if has_candle:
                  if rsi_ok and momentum_ok:
                     entry_signal = True
@@ -201,17 +222,19 @@ def run_backtest(symbol="XAU/USD"):
     win_rate = (wins / total_trades * 100) if total_trades > 0 else 0
     total_pnl = sum([t['pnl'] for t in trades])
     
-    print("\n--- BACKTEST NATIJALARI ---")
+    if trades:
+        print("\n--- BARCHA SAVDOLAR RO'YXATI ---")
+        print(f"{'VAQT (UTC)':<25} | {'TUR':<5} | {'NATIJA':<6} | {'PnL':<8}")
+        print("-" * 55)
+        for t in trades:
+            print(f"{str(t['type']):<5} | {t['outcome']:<6} | {t['pnl']:.2f} | {t['time']}")
+
+    print("\n--- BACKTEST NATIJALARI (YAKUNIY) ---")
     print(f"Jami Savdolar: {total_trades}")
     print(f"Yutuqlar: {wins}")
     print(f"Yo'qotishlar: {losses}")
     print(f"Win Rate: {win_rate:.2f}%")
     print(f"Total PnL (Price diff): {total_pnl:.2f}")
-    
-    if trades:
-        print("\nOxirgi 5 savdo:")
-        for t in trades[-5:]:
-            print(f"{t['time']} | {t['type']} | {t['outcome']} | PnL: {t['pnl']:.2f}")
 
 if __name__ == "__main__":
     run_backtest()

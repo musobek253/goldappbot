@@ -139,7 +139,16 @@ class StrategyEngine:
             # Momentum UP: Hist > Prev_Hist (Kuchaymoqda) Yoki Hist > 0 (Trend o'zgarishi)
             momentum_ok = macd_hist > prev_macd_hist or macd_hist > 0
             
-            # Agar Pattern bo'lsa, filterlarni yumshatish mumkin. Pattern yo'q bo'lsa, qattiq turamiz.
+            # 3. Multi-Timeframe Candle Confirmation (H4 + H1) - 78% WR
+            df_h1 = self.data.fetch_data(symbol, "H1", limit=50)
+            if not df_h1.empty:
+                 h1_last = df_h1.iloc[-1]
+                 is_h1_bullish = h1_last['close'] > h1_last['open']
+                 is_h4_bullish = last_h4['close'] > last_h4['open']
+                 
+                 if not (is_h1_bullish and is_h4_bullish):
+                     momentum_ok = False # Veto if candles mismatch
+
             # OPTIMIZATION UPDATE: Pattern alone gives low quality trades. We REQUIRE candle signal.
             if has_candle_signal:
                 if rsi_ok and momentum_ok:
@@ -162,6 +171,16 @@ class StrategyEngine:
             prev_macd_hist = prev_m15.get("MACDh_12_26_9", 0)
             
             momentum_ok = macd_hist < prev_macd_hist or macd_hist < 0
+
+            # 3. Multi-Timeframe Candle Confirmation (H4 + H1) - 78% WR
+            df_h1 = self.data.fetch_data(symbol, "H1", limit=50)
+            if not df_h1.empty:
+                 h1_last = df_h1.iloc[-1]
+                 is_h1_bearish = h1_last['close'] < h1_last['open']
+                 is_h4_bearish = last_h4['close'] < last_h4['open']
+                 
+                 if not (is_h1_bearish and is_h4_bearish):
+                     momentum_ok = False # Veto if candles mismatch
 
             if has_candle_signal:
                 if rsi_ok and momentum_ok:

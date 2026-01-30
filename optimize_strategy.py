@@ -9,12 +9,10 @@ import logging
 
 logging.getLogger("treding.data.feed").setLevel(logging.ERROR)
 
-def run_scenario(df_h4, df_m15, scenario_name, params):
-    # Params: {tp_mult, ema_trend, rsi_period, candle_mode}
+def run_scenario(df_h4, df_h1, df_m15, scenario_name, params):
+    # Params: {multi_tf: bool, strict_candle: bool}
     
-    tp_mult = params.get("tp_mult", 2.0)
-    ema_col = f"EMA_{params.get('ema_trend', 200)}"
-    rsi_col = f"RSI_{params.get('rsi_period', 14)}"
+    use_multi_tf = params.get("multi_tf", False)
     
     trades = []
     start_index = 200
@@ -23,21 +21,23 @@ def run_scenario(df_h4, df_m15, scenario_name, params):
         current_m15_row = df_m15.iloc[i]
         current_time = current_m15_row.name
         
-        # 1. Global Context
+        # Sync H4 and H1
         h4_subset = df_h4[df_h4.index <= current_time]
-        if h4_subset.empty: continue
+        h1_subset = df_h1[df_h1.index <= current_time]
         
-        # Trend check using variable EMA
-        if h4_subset.iloc[-1].get(ema_col) is None: continue
+        if h4_subset.empty or h1_subset.empty: continue
         
-        price = h4_subset.iloc[-1]['close']
-        ema_val = h4_subset.iloc[-1][ema_col]
-        global_trend = "UP" if price > ema_val else "DOWN"
+        # 1. H4 Analysis
+        # Trend EMA 200 (Standard)
+        h4_last = h4_subset.iloc[-1]
+        ema_200 = h4_last.get("EMA_200")
+        if ema_200 is None: continue
         
-        # Level check (keep constant for this test to isolate variables)
+        global_trend = "UP" if h4_last['close'] > ema_200 else "DOWN"
+        
+        # Levels
         h4_slice_for_levels = h4_subset.tail(100)
         h4_levels = identify_levels(h4_slice_for_levels, window=10)
-        
         current_price = current_m15_row['close']
         LEVEL_TOLERANCE = 5.0
         
@@ -53,59 +53,70 @@ def run_scenario(df_h4, df_m15, scenario_name, params):
              elif nearby_resistance: direction = "SELL"
              else: continue
 
-        # 3. Entry
+        # 2. H1 Confirmation (NEW)
+        if use_multi_tf:
+            h1_last = h1_subset.iloc[-1]
+            h1_open = h1_last['open']
+            h1_close = h1_last['close']
+            
+            is_h1_bullish = h1_close > h1_open
+            is_h1_bearish = h1_close < h1_open
+            
+            # Additional Check: H4 Candle Color
+            h4_open = h4_last['open']
+            h4_close = h4_last['close']
+            is_h4_bullish = h4_close > h4_open
+            is_h4_bearish = h4_close < h4_open
+            
+            if direction == "BUY":
+                if not (is_h1_bullish and is_h4_bullish): continue # Strict: H1 and H4 must show GREEN
+            elif direction == "SELL":
+                if not (is_h1_bearish and is_h4_bearish): continue # Strict: H1 and H4 must show RED
+
+        # 3. Entry (M15)
         last_m15 = df_m15.iloc[i]
         prev_m15 = df_m15.iloc[i-1]
         prev_2_m15 = df_m15.iloc[i-2]
         
         candlesticks = check_candlestick_patterns(last_m15, prev_m15, prev_2_m15)
         
-        candle_types = {
-            "BUY": ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"],
-            "SELL": ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"]
-        }
+        # Standard Signals
+        buy_candles = ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"]
+        sell_candles = ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"]
         
         entry_signal = False
         
         if direction == "BUY":
-            has_valid_candle = any(p in candlesticks for p in candle_types["BUY"])
-            
-            rsi_val = last_m15.get(rsi_col, 50)
-            rsi_ok = rsi_val < 70
-            
-            momentum_ok = True 
-            # MACD is kept simple/standard for now
+            has_candle = any(p in candlesticks for p in buy_candles)
+            # RSI/MACD Standard
+            rsi_ok = last_m15.get("RSI_14", 50) < 70
             macd_hist = last_m15.get("MACDh_12_26_9", 0)
-            if macd_hist <= 0: momentum_ok = False # Basic momentum check
-                
-            if has_valid_candle and rsi_ok and momentum_ok:
+            momentum_ok = macd_hist > prev_m15.get("MACDh_12_26_9", 0) or macd_hist > 0
+            
+            if has_candle and rsi_ok and momentum_ok:
                 entry_signal = True
                 
         elif direction == "SELL":
-            has_valid_candle = any(p in candlesticks for p in candle_types["SELL"])
-            
-            rsi_val = last_m15.get(rsi_col, 50)
-            rsi_ok = rsi_val > 30
-            
-            momentum_ok = True
+            has_candle = any(p in candlesticks for p in sell_candles)
+            rsi_ok = last_m15.get("RSI_14", 50) > 30
             macd_hist = last_m15.get("MACDh_12_26_9", 0)
-            if macd_hist >= 0: momentum_ok = False
-                
-            if has_valid_candle and rsi_ok and momentum_ok:
+            momentum_ok = macd_hist < prev_m15.get("MACDh_12_26_9", 0) or macd_hist < 0
+            
+            if has_candle and rsi_ok and momentum_ok:
                 entry_signal = True
                 
         if entry_signal:
              entry_price = current_price
-             # Variable TP Multiplier
              atr = last_m15.get("ATRr_14", entry_price * 0.002) * 1.5
              
-             sl_dist = atr
-             tp_dist = atr * tp_mult 
+             # Optimal settings from previous search
+             sl_dist = atr * 1.0
+             tp_dist = atr * 2.0 # Total 3.0 ATR
              
              sl = entry_price - sl_dist if direction == "BUY" else entry_price + sl_dist
              tp = entry_price + tp_dist if direction == "BUY" else entry_price - tp_dist
              
-             future_candles = df_m15.iloc[i+1:i+30] # Longer lookahead for higher TP
+             future_candles = df_m15.iloc[i+1:i+30]
              outcome = "BE"
              pnl = 0
              
@@ -145,65 +156,37 @@ def run_scenario(df_h4, df_m15, scenario_name, params):
     wr = (wins / total * 100) if total > 0 else 0
     total_pnl = sum([t['pnl'] for t in trades])
     
-    return {"name": scenario_name, "wr": wr, "pnl": total_pnl, "trades": total, "params": params}
+    return {"name": scenario_name, "wr": wr, "pnl": total_pnl, "trades": total}
 
 def optimize():
     print("Loading Data...")
     data = DataHandler()
-    df_h4 = data.fetch_data("XAU/USD", "H4", limit=1000) # More H4 data for EMA calc
+    df_h4 = data.fetch_data("XAU/USD", "H4", limit=1000)
+    df_h1 = data.fetch_data("XAU/USD", "H1", limit=2000) # Added H1
     df_m15 = data.fetch_data("XAU/USD", "M15", limit=3000)
     
-    if df_h4.empty or df_m15.empty:
+    if df_h4.empty or df_h1.empty or df_m15.empty:
         print("Data Error")
         return
         
     print("Calculating Indicators...")
-    # Calculate ALL variations needed
     config = {"RSI_PERIOD": 14, "EMA_FAST": 50, "EMA_SLOW": 200}
     df_h4 = calculate_indicators(df_h4, config)
-    # Add extra EMAs to H4
-    df_h4["EMA_100"] = df_h4['close'].ewm(span=100, adjust=False).mean()
-    
+    df_h1 = calculate_indicators(df_h1, config)
     df_m15 = calculate_indicators(df_m15, config)
-    # Add extra RSI to M15
-    # calculate_indicators handles RSI_PERIOD mainly, let's manually add RSI 7 if needed
-    # Or just use RSI 14 for now to limit complexity, user asked for "best solutions".
-    # Focus on TP Multiplier and Trend EMA first.
     
     results = []
     
-    # Grid Search Params
-    # TP Multipliers: 1.5, 2.0, 2.5, 3.0
-    # Trend EMAs: 50, 100, 200
+    # 1. Base Strategy (No Multi-TF checks, just levels/trend)
+    results.append(run_scenario(df_h4, df_h1, df_m15, "Base Strategy", {"multi_tf": False}))
     
-    tp_mults = [1.5, 2.0, 3.0]
-    ema_trends = [50, 100, 200]
+    # 2. Multi-TF Alignment (H4+H1 Candle Colors must match M15 entry)
+    results.append(run_scenario(df_h4, df_h1, df_m15, "Multi-TF Alignment (H4+H1+M15)", {"multi_tf": True}))
     
-    count = 0
-    total_scenarios = len(tp_mults) * len(ema_trends)
-    
-    print(f"Running {total_scenarios} scenarios...")
-    
-    for tp in tp_mults:
-        for ema in ema_trends:
-            count += 1
-            name = f"TP: {tp}x | EMA: {ema}"
-            print(f"[{count}/{total_scenarios}] Running {name}...")
-            
-            res = run_scenario(df_h4, df_m15, name, {"tp_mult": tp, "ema_trend": ema, "rsi_period": 14})
-            results.append(res)
-            print(f" -> PnL: {res['pnl']:.2f}, WR: {res['wr']:.1f}%")
-
-    print("\n--- TOP 3 RESULTS ---")
+    print("\n--- RESULTS ---")
     results.sort(key=lambda x: x['pnl'], reverse=True)
-    for r in results[:3]:
+    for r in results:
         print(f"{r['name']}: PnL=${r['pnl']:.2f}, WR={r['wr']:.1f}%, Trades={r['trades']}")
-        
-    # Also show high WR results
-    print("\n--- TOP WIN RATE ---")
-    results.sort(key=lambda x: x['wr'], reverse=True)
-    for r in results[:3]:
-        print(f"{r['name']}: WR={r['wr']:.1f}%, PnL=${r['pnl']:.2f}, Trades={r['trades']}")
 
 if __name__ == "__main__":
     optimize()
