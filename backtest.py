@@ -110,13 +110,30 @@ def run_backtest(symbol="XAU/USD"):
         entry_signal = False
         if direction == "BUY":
             has_candle = any(p in candlesticks for p in ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"])
+            
+            # Yangi filtrlar
+            rsi_ok = last_m15.get("RSI_14") < 60
+            
+            macd_hist = last_m15.get("MACDh_12_26_9", 0)
+            prev_macd_hist = prev_m15.get("MACDh_12_26_9", 0)
+            momentum_ok = macd_hist > prev_macd_hist or macd_hist > 0
+            
             if valid_pattern or has_candle:
-                entry_signal = True
+                if rsi_ok and momentum_ok:
+                    entry_signal = True
                 
         elif direction == "SELL":
              has_candle = any(p in candlesticks for p in ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"])
+             
+             rsi_ok = last_m15.get("RSI_14") > 40
+             
+             macd_hist = last_m15.get("MACDh_12_26_9", 0)
+             prev_macd_hist = prev_m15.get("MACDh_12_26_9", 0)
+             momentum_ok = macd_hist < prev_macd_hist or macd_hist < 0
+             
              if valid_pattern or has_candle:
-                entry_signal = True
+                 if rsi_ok and momentum_ok:
+                    entry_signal = True
                 
         if entry_signal:
              # Trade Execution Simulation

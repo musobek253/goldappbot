@@ -127,28 +127,47 @@ class StrategyEngine:
             # Hammer, Bullish Engulfing yoki Morning Star
             has_candle_signal = any(p in candlesticks for p in ["HAMMER", "BULLISH_ENGULFING", "MORNING_STAR"])
             
-            # Agar Pattern bo'lsa, har qanday bullish candle yetarli bo'lishi mumkin.
-            # Agar Pattern bo'lmasa, kuchli candle signal SHART.
+            # --- YANGI FILTRLAR (Win Rate 75% uchun) ---
+            # 1. RSI: Tepada sotib olmaslik kerak (RSI < 60) - Stricter
+            rsi_ok = rsi < 60
             
+            # 2. MACD Momentum: Gistogramma o'sayotgan bo'lishi kerak
+            # Indikatorlar dataframe da 'MACDh_12_26_9' (Hist) borligini tekshiramiz
+            macd_hist = last_m15.get("MACDh_12_26_9", 0)
+            prev_macd_hist = prev_m15.get("MACDh_12_26_9", 0)
+            
+            # Momentum UP: Hist > Prev_Hist (Kuchaymoqda) Yoki Hist > 0 (Trend o'zgarishi)
+            momentum_ok = macd_hist > prev_macd_hist or macd_hist > 0
+            
+            # Agar Pattern bo'lsa, filterlarni yumshatish mumkin. Pattern yo'q bo'lsa, qattiq turamiz.
             if valid_pattern or has_candle_signal:
-                confirmed = True
-                p_text = f"Pattern: {pattern_name}" if valid_pattern else "No Pattern"
-                c_text = f"Candle: {candlesticks}" if has_candle_signal else "Weak Candle"
-                confirmation_reason = f"{p_text} | {c_text} | RSI: {rsi:.1f}"
+                if rsi_ok and momentum_ok:
+                    confirmed = True
+                    p_text = f"Pattern: {pattern_name}" if valid_pattern else "No Pattern"
+                    c_text = f"Candle: {candlesticks}" if has_candle_signal else "Weak Candle"
+                    confirmation_reason = f"{p_text} | {c_text} | RSI: {rsi:.1f} | MACD: OK"
             
-            # RSI Filter
-            if rsi > 30 and rsi < 70: 
-                pass
 
         if direction == "SELL":
              # Shooting Star, Bearish Engulfing yoki Evening Star
             has_candle_signal = any(p in candlesticks for p in ["SHOOTING_STAR", "BEARISH_ENGULFING", "EVENING_STAR"])
 
+            # --- YANGI FILTRLAR ---
+            # 1. RSI: Pastda sotmaslik kerak (RSI > 40) - Stricter
+            rsi_ok = rsi > 40
+            
+            # 2. Momentum DOWN: Hist < Prev_Hist (Pasaymoqda) Yoki Hist < 0
+            macd_hist = last_m15.get("MACDh_12_26_9", 0)
+            prev_macd_hist = prev_m15.get("MACDh_12_26_9", 0)
+            
+            momentum_ok = macd_hist < prev_macd_hist or macd_hist < 0
+
             if valid_pattern or has_candle_signal:
-                confirmed = True
-                p_text = f"Pattern: {pattern_name}" if valid_pattern else "No Pattern"
-                c_text = f"Candle: {candlesticks}" if has_candle_signal else "Weak Candle"
-                confirmation_reason = f"{p_text} | {c_text} | RSI: {rsi:.1f}"
+                if rsi_ok and momentum_ok:
+                    confirmed = True
+                    p_text = f"Pattern: {pattern_name}" if valid_pattern else "No Pattern"
+                    c_text = f"Candle: {candlesticks}" if has_candle_signal else "Weak Candle"
+                    confirmation_reason = f"{p_text} | {c_text} | RSI: {rsi:.1f} | MACD: OK"
                 
         if not confirmed:
             return None
